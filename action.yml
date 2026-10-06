@@ -1,0 +1,105 @@
+name: "Perfhound gateway"
+description: "Fetch the commits between a good and a bad point in history, with their PRs and linked issues (JSON + summary)."
+branding:
+  icon: "search"
+  color: "orange"
+
+inputs:
+  repository:
+    description: "Another public GitHub project to check, as owner/name (e.g. psf/requests). Empty: this repository."
+    required: false
+    default: ""
+  good:
+    description: "Last fast commit / tag / branch. Empty: the commit before this push (push), the PR's base (pull_request)."
+    required: false
+    default: ""
+  bad:
+    description: "First slow commit / tag / branch. Empty: this push / the PR's head."
+    required: false
+    default: ""
+  output:
+    description: "JSON file to write"
+    required: false
+    default: "perfhound-range.json"
+  evaluation:
+    description: "'true' = testing mode: hide GitHub data that appeared after `bad` landed"
+    required: false
+    default: "false"
+  github-token:
+    description: "Token for PRs and issues (the default GITHUB_TOKEN is enough for this repository)"
+    required: false
+    default: ${{ github.token }}
+  python-version:
+    description: "Python used to run the gateway"
+    required: false
+    default: "3.12"
+
+outputs:
+  file:
+    description: "Path of the JSON file"
+    value: ${{ steps.run.outputs.file }}
+  commits:
+    description: "Number of commits in the range"
+    value: ${{ steps.run.outputs.commits }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install the Perfhound gateway
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: python -m pip install --quiet "$ACTION_PATH"
+
+    - name: Fetch the range
+      id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        REPOSITORY: ${{ inputs.repository }}
+        IN_GOOD: ${{ inputs.good }}
+        IN_BAD: ${{ inputs.bad }}
+        OUT: ${{ inputs.output }}
+        EVALUATION: ${{ inputs.evaluation }}
+        BEFORE: ${{ github.event.before }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      run: |
+        if [ -n "$REPOSITORY" ]; then
+          # another project: the gateway downloads only what the range needs (history + changed files)
+          if [ -z "$IN_GOOD" ]; then
+            echo "::error::When 'repository' is set, also give 'good' (and usually 'bad'), e.g. v2.32.3 and v2.32.4."
+            exit 1
+          fi
+          EXTRA=()
+          if [ "$EVALUATION" = "true" ]; then EXTRA+=(--evaluation); fi
+          python -m perfhound.gateway range "https://github.com/$REPOSITORY" --good "$IN_GOOD" --bad "${IN_BAD:-HEAD}" \
+            --out "$OUT" --github-repo "$REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" "${EXTRA[@]}"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          echo "commits=$(python -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['count'])" "$OUT")" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        cd "$GITHUB_WORKSPACE"
+        if ! git rev-parse --git-dir > /dev/null 2>&1; then
+          echo "::error::No git repository here. Add 'actions/checkout@v4' (with fetch-depth: 0) before this step."
+          exit 1
+        fi
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          echo "Shallow checkout: fetching the full history"
+          git fetch --quiet --unshallow --tags
+        fi
+        GOOD="$IN_GOOD"
+        BAD="${IN_BAD:-${PR_HEAD:-$GITHUB_SHA}}"
+        EXTRA=()
+        if [ -z "$GOOD" ]; then
+          if [ -n "$PR_BASE" ]; then GOOD="$PR_BASE"; EXTRA+=(--from-merge-base); else GOOD="$BEFORE"; fi
+        fi
+        if [ "$EVALUATION" = "true" ]; then EXTRA+=(--evaluation); fi
+        python -m perfhound.gateway range . --good "$GOOD" --bad "$BAD" --out "$OUT" \
+          --github-repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" "${EXTRA[@]}"
+        echo "file=$OUT" >> "$GITHUB_OUTPUT"
+        echo "commits=$(python -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['count'])" "$OUT")" >> "$GITHUB_OUTPUT"

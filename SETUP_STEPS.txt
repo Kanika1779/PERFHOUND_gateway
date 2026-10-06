@@ -1,0 +1,122 @@
+PERFHOUND GATEWAY - SETUP STEPS (Windows)
+=========================================
+
+What it does: you give it a GitHub project and two points in its history
+(good = still fast, bad = slow). It fetches every commit in between - message,
+author, date, files, diff, changed functions - plus the pull request behind each
+commit and the issues that PR closes. Works in the terminal and as a GitHub Action.
+
+Do the steps in order. Every command is typed in PowerShell.
+Lines starting with ">" are commands: type them WITHOUT the ">".
+
+
+PART A - SET UP ON THE LAPTOP
+-----------------------------
+
+STEP 1. Install Python 3.12 and Git (skip what is already installed)
+  - Python 3.12: https://www.python.org/downloads/
+    In the installer TICK "Add python.exe to PATH", then Install.
+  - Git: https://git-scm.com/download/win  (keep all default options)
+  - Close PowerShell and open a NEW one, then check:
+      > py -3 --version          (must show Python 3.10, 3.11, 3.12 or 3.13)
+      > git --version            (any version 2.31 or newer)
+
+STEP 2. Unzip
+  - Right-click Perfhound_gateway_setup.zip -> Extract All -> Extract.
+  - Open the extracted folders until you see the folder that contains
+    pyproject.toml, src, tests and this file.
+  - In that folder: click the address bar, type  powershell  and press Enter.
+    A PowerShell window opens in the right folder. Check:
+      > dir pyproject.toml       (must show the file; if not, you are in the wrong folder)
+
+STEP 3. Create the Python environment and install (1-2 minutes)
+      > py -3 -m venv .venv
+      > .venv\Scripts\python -m pip install -e ".[dev]"
+
+STEP 4. Run the tests
+      > .venv\Scripts\python -m pytest
+  Expected last line:  260 passed, 3 skipped   (any "failed" = stop and ask)
+
+STEP 5. Create a GitHub token (once)
+  - Log in to github.com, open  https://github.com/settings/tokens
+  - Generate new token -> Generate new token (classic)
+      Note: perfhound      Expiration: 90 days      Scopes: tick NOTHING
+  - Click Generate token and COPY it (starts with ghp_, shown only once).
+  - Save it in the gateway:
+      > .venv\Scripts\python -m perfhound.gateway login
+    Paste the token (right-click pastes; NOTHING appears while pasting - normal), Enter.
+  Expected:  logged in as <username> ... requests left this hour: 5000/5000
+  Never put the token in code or share it. It is stored in C:\Users\<you>\.perfhound\
+
+STEP 6. First real test
+      > .venv\Scripts\python -m perfhound.gateway range https://github.com/psf/requests --good v2.32.3 --bad v2.32.4 --out results\requests.json --summary results\requests.md
+  Expected last line:  29 commits, 29 with a PR (1 GitHub requests, ...)
+  See the table: open results\requests.md in VS Code and press Ctrl+Shift+V.
+
+STEP 7. Check ANY public project
+      > .venv\Scripts\python -m perfhound.gateway range <project link> --good <old> --bad <new> --out results\<name>.json --summary results\<name>.md
+  Ways to choose good / bad:
+    latest 20 commits        --good HEAD~20 --bad HEAD
+    between two releases     --good 3.0.0 --bad 3.1.0   (names from the project's Releases / Tags page)
+    a GitHub compare link    range https://github.com/pallets/flask/compare/3.0.0...3.1.0   (no --good / --bad)
+  The first time a project is used its history is downloaded (seconds; about a minute
+  for big projects like pandas). After that it is fast.
+  Few PRs in the result is normal for projects whose maintainers push directly.
+
+
+PART B - PUT IT ON GITHUB (runs as a GitHub Action)
+---------------------------------------------------
+
+STEP 8. Create an EMPTY repository
+  - Open  https://github.com/new
+      Repository name: perfhound-gateway     Public
+      Do NOT add a README, .gitignore or license.
+  - Click Create repository.
+
+STEP 9. Tell git who you are (only the first time git is used on this laptop)
+      > git config --global user.name "Your Name"
+      > git config --global user.email "your-github-email@example.com"
+
+STEP 10. Upload the folder (same PowerShell window, same folder)
+  Replace YOUR-GITHUB-USERNAME with the real GitHub username:
+      > git init
+      > git add .
+      > git commit -m "Perfhound gateway + GitHub Action"
+      > git branch -M main
+      > git remote add origin https://github.com/YOUR-GITHUB-USERNAME/perfhound-gateway.git
+      > git push -u origin main
+  A GitHub login window may open the first time: log in and the upload continues.
+  Expected at the end:  main -> main
+
+STEP 11. Check the Actions
+  - Open  https://github.com/YOUR-GITHUB-USERNAME/perfhound-gateway/actions
+  - Two runs start (1-2 minutes): "tests" and "perfhound". Both must turn green.
+  - Click the perfhound run: its Summary shows a table; the JSON is under Artifacts.
+  - The first run shows "0 commits ... first commit of the repository". That is
+    correct: there is nothing before the very first commit.
+
+STEP 12. Run it on a real project from GitHub
+  - Actions tab -> perfhound (left) -> Run workflow (right). Fill in:
+      Another public project ...   psf/requests
+      Last fast commit / tag ...   v2.32.3
+      First slow commit ...        v2.32.4
+  - Click Run workflow, refresh after a few seconds, wait for the green tick, open it.
+  Expected Summary:  Perfhound: 29 commits between v2.32.3 and v2.32.4 ... 29 with a PR
+
+STEP 13 (optional). Use it inside another of your GitHub repositories
+  - Copy examples\perfhound-in-another-repo.yml into that repository as
+    .github\workflows\perfhound.yml
+  - In that file replace OWNER with YOUR-GITHUB-USERNAME, then commit and push.
+  - It then runs on every push to main of that repository, and by hand from its Actions tab.
+
+
+IF SOMETHING GOES WRONG
+-----------------------
+  'py' is not recognized            -> Python not installed / not on PATH: redo STEP 1, open a NEW PowerShell.
+  'git' is not recognized           -> Git not installed: redo STEP 1, open a NEW PowerShell.
+  pyproject.toml not found          -> wrong folder: go into the folder that contains pyproject.toml (STEP 2).
+  running scripts is disabled       -> you typed "activate"; not needed. Always use  .venv\Scripts\python ...
+  Please tell me who you are        -> do STEP 9, then run the git commit line again.
+  request limit reached             -> no token: do STEP 5 (5,000 requests/hour instead of 60).
+  is not a commit, tag or branch    -> that good / bad name does not exist in the project: check its Tags page.
+  A red X on GitHub                 -> click it -> click the red step -> copy the last 40 lines and ask.

@@ -1,0 +1,39 @@
+# Copy this file into ANY GitHub repository as .github/workflows/perfhound.yml
+# (replace OWNER/perfhound-gateway with the repository that holds this gateway).
+name: perfhound
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      good:
+        description: "Last fast commit / tag"
+        required: false
+        default: ""
+      bad:
+        description: "First slow commit / tag / branch"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: perfhound
+        uses: OWNER/perfhound-gateway@main
+        with:
+          good: ${{ inputs.good }}
+          bad: ${{ inputs.bad }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perfhound-range
+          path: ${{ steps.perfhound.outputs.file }}

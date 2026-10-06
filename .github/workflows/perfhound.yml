@@ -1,0 +1,47 @@
+# Runs the gateway on THIS repository: on every push, on pull requests, and by hand
+# (Actions tab -> perfhound -> Run workflow -> type a good and a bad commit / tag, and
+# optionally another public project, e.g. repository psf/requests, good v2.32.3, bad v2.32.4).
+name: perfhound
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Another public project, owner/name (e.g. psf/requests). Empty = this repository"
+        required: false
+        default: ""
+      good:
+        description: "Last fast commit / tag (empty = the commit before 'bad')"
+        required: false
+        default: ""
+      bad:
+        description: "First slow commit / tag / branch (empty = latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # the whole history: the range can reach back to any commit
+
+      - id: perfhound
+        uses: ./                    # this repository's action.yml
+        with:
+          repository: ${{ inputs.repository }}
+          good: ${{ inputs.good }}
+          bad: ${{ inputs.bad }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perfhound-range
+          path: ${{ steps.perfhound.outputs.file }}
