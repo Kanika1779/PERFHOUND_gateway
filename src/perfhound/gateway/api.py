@@ -137,14 +137,15 @@ class Gateway:
         commit_range = self.resolve(good, bad, **range_options)
         commits: list[CandidateCommit] = []
         commit_hits = function_hits = 0
-        for start in range(0, len(commit_range.shas), self.batch_size):     # big ranges: piece by piece
-            part = replace(commit_range, shas=commit_range.shas[start:start + self.batch_size])
+        # `offset`, not `start`: reusing `start` overwrote the timer (stats.seconds became the machine uptime)
+        for offset in range(0, len(commit_range.shas), self.batch_size):    # big ranges: piece by piece
+            part = replace(commit_range, shas=commit_range.shas[offset:offset + self.batch_size])
             batch, hits = self._load_commits(part)
             commit_hits += hits
             if analyze:
                 batch, hits = self._add_functions(batch)
                 function_hits += hits
-            commits.extend(replace(c, position=c.position + start) for c in batch)
+            commits.extend(replace(c, position=c.position + offset) for c in batch)
         gh_requests, gh_with_pr, gh_warnings = 0, 0, ()
         if self.github is not None and commits:
             commits, gh = self._add_github(commits)

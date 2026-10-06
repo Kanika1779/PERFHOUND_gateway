@@ -120,3 +120,16 @@ def test_does_not_modify_the_repo(fixture_repo):
     resolve_quietly(fixture_repo.path, GOOD_TAG, BAD_TAG)
     assert fixture_repo.git("status", "--porcelain") == before
     assert fixture_repo.git("rev-parse", "HEAD") == head_before
+
+
+def test_stats_seconds_is_the_call_duration_not_the_machine_uptime(fixture_repo):
+    import time
+
+    from perfhound.gateway import Gateway
+
+    with Gateway(fixture_repo.path, cache=False, batch_size=2) as gw:     # several batches
+        t0 = time.perf_counter()
+        cands = gw.get_candidates(GOOD_TAG, BAD_TAG)
+        wall = time.perf_counter() - t0
+    assert [c.position for c in cands] == list(range(len(cands)))       # positions continue across batches
+    assert 0 <= gw.last_stats.seconds <= wall + 0.01
